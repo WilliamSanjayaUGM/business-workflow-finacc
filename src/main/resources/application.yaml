@@ -1,0 +1,34 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: business-workflow
+  datasource:
+    driverClassName: org.postgresql.Driver
+    url: ${PG_URL}
+    username: ${PG_USERNAME}
+    password: ${PG_PASSWORD}
+    testWhileIdle: true
+    validationQuery: SELECT 1
+
+camunda:
+  bpm:
+    database:
+      type: postgres
+    authorization:
+      enabled: true
+    history-level: FULL
+    admin-user:
+      id: demo
+      password: demo
+
+logging:
+  level:
+    org.camunda.bpm.engine: INFO
+
+# spring.datasource.url: jdbc:h2:file:./camunda-h2-database
+
+# camunda.bpm.admin-user:
+#   id: demo
+#   password: demo

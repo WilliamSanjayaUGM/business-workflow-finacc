@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+	xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+	xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+	xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+	xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	id="Definitions_Risk"
+	targetNamespace="http://sanjaya-banking/workflow/risk">
+	
+	<bpmn:error id="BUREAU_ERROR" errorCode="BUREAU_ERROR"/>
+	
+	<bpmn:process id="risk-processing" name="Risk Processing" isExecutable="true">
+
+	    <bpmn:startEvent id="StartEvent_Risk"/>
+	    
+	    <!-- Parallel Fetch -->
+	    <bpmn:parallelGateway id="PG_Start"/>
+	    
+	    <bpmn:sequenceFlow sourceRef="StartEvent_Risk" targetRef="PG_Start"/>
+	
+	    <!-- Fetch Customer -->
+	    <bpmn:serviceTask
+	        id="FetchCustomer"
+	        name="Fetch Customer Info"
+	        camunda:type="external"
+	        camunda:topic="fetch-customer"/>
+	        
+	    <!-- Fetch Borrower -->
+	    <bpmn:serviceTask
+	        id="FetchBorrower"
+	        name="Fetch Borrower Info"
+	        camunda:type="external"
+	        camunda:topic="fetch-borrower"/>
+	        
+	    <!-- Fetch Consent -->
+	    <bpmn:serviceTask
+	        id="FetchConsent"
+	        name="Fetch Consent"
+	        camunda:type="external"
+	        camunda:topic="fetch-consent"/>
+	
+	    <!-- Join -->
+	    <bpmn:parallelGateway id="PG_Join"/>
+	
+	    <bpmn:sequenceFlow sourceRef="PG_Start" targetRef="FetchCustomer"/>
+	    <bpmn:sequenceFlow sourceRef="PG_Start" targetRef="FetchBorrower"/>
+	    <bpmn:sequenceFlow sourceRef="PG_Start" targetRef="FetchConsent"/>
+	
+	    <bpmn:sequenceFlow sourceRef="FetchCustomer" targetRef="PG_Join"/>
+	    <bpmn:sequenceFlow sourceRef="FetchBorrower" targetRef="PG_Join"/>
+	    <bpmn:sequenceFlow sourceRef="FetchConsent" targetRef="PG_Join"/>
+	
+	    <!-- Call Bureau -->
+	    <bpmn:serviceTask
+	        id="CallBureau"
+	        name="Call Credit Bureau"
+	        camunda:type="external"
+	        camunda:topic="call-bureau"/>
+	
+	    <bpmn:sequenceFlow sourceRef="PG_Join" targetRef="CallBureau"/>
+	    
+	    <!-- Boundary Error Event -->
+        <bpmn:boundaryEvent
+            id="BureauFailure"
+            attachedToRef="CallBureau"
+            cancelActivity="true">
+            <bpmn:errorEventDefinition errorRef="BUREAU_ERROR"/>
+        </bpmn:boundaryEvent>
+
+        <!-- Manual Review -->
+        <bpmn:serviceTask
+            id="ManualReview"
+            name="Manual Credit Review"
+            camunda:type="external"
+            camunda:topic="manual-review"/>
+
+        <bpmn:sequenceFlow sourceRef="BureauFailure" targetRef="ManualReview"/>
+	
+	    <!-- Evaluate Risk -->
+	    <bpmn:serviceTask
+	        id="EvaluateRisk"
+	        name="Evaluate Risk"
+	        camunda:type="external"
+	        camunda:topic="evaluate-risk"/>
+	
+	    <bpmn:sequenceFlow sourceRef="CallBureau" targetRef="EvaluateRisk"/>
+	    
+	    <!-- TIMEOUT PROTECTION -->
+        <bpmn:boundaryEvent
+                id="RiskTimeout"
+                attachedToRef="EvaluateRisk"
+                cancelActivity="true">
+            <bpmn:timerEventDefinition>
+                <bpmn:timeDuration>PT5S</bpmn:timeDuration>
+            </bpmn:timerEventDefinition>
+        </bpmn:boundaryEvent>
+
+        <bpmn:sequenceFlow sourceRef="RiskTimeout" targetRef="ManualReview"/>
+	    
+	    <bpmn:serviceTask
+		    id="AiRiskAnalysis"
+		    name="AI Risk Analysis"
+		    camunda:type="external"
+		    camunda:topic="ai-risk-analysis"/>
+	
+	    <bpmn:sequenceFlow sourceRef="EvaluateRisk" targetRef="AiRiskAnalysis"/>
+	    
+	    <bpmn:endEvent id="RiskEnd"/>
+	    <bpmn:sequenceFlow sourceRef="AiRiskAnalysis" targetRef="RiskEnd"/>
+	    <bpmn:sequenceFlow sourceRef="ManualReview" targetRef="RiskEnd"/>
+	
+	</bpmn:process>
+
+</bpmn:definitions>

@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+	xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+	xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	id="Definitions_payment"
+	targetNamespace="http://sanjaya-banking/workflow/payment">
+
+	<bpmn:process id="multi-channel-payment-clearing" name="Multi-Channel Payment Clearing" isExecutable="true" camunda:historyTimeToLive="365">
+		<!-- Start -->
+	    <bpmn:startEvent id="Start_Payment"/>
+	    <bpmn:sequenceFlow id="p1" sourceRef="Start_Payment" targetRef="ValidatePayment"/>
+	
+	    <!-- Validate -->
+	    <bpmn:serviceTask
+	      id="ValidatePayment"
+	      name="Validate Payment"
+	      camunda:type="external"
+	      camunda:topic="payment-validation"/>
+	    <bpmn:sequenceFlow id="p2" sourceRef="ValidatePayment" targetRef="Gateway_Channel"/>
+	
+	    <!-- Route -->
+	    <bpmn:exclusiveGateway id="Gateway_Channel">
+	    	<bpmn:incoming>p2</bpmn:incoming>
+		</bpmn:exclusiveGateway>
+	    
+	    <!-- RTGS -->
+	    <bpmn:sequenceFlow id="Flow_RTGS" sourceRef="Gateway_Channel" targetRef="RTGS_Clearing">
+	      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+	        ${channel == "RTGS"}
+	      </bpmn:conditionExpression>
+	    </bpmn:sequenceFlow>
+	    
+	    <bpmn:serviceTask
+	      id="RTGS_Clearing"
+	      name="RTGS Clearing"
+	      camunda:type="external"
+	      camunda:topic="rtgs-clearing"
+	      camunda:asyncBefore="true"/>
+	    
+	    <!-- RTGS Compensation -->
+	    <bpmn:boundaryEvent
+	      id="RTGS_Comp"
+	      attachedToRef="RTGS_Clearing"
+	      cancelActivity="true">
+	      <bpmn:compensateEventDefinition/>
+	    </bpmn:boundaryEvent>
+	    
+	    <bpmn:serviceTask
+	      id="RTGS_Reversal"
+	      name="RTGS Reversal"
+	      camunda:type="external"
+	      camunda:topic="rtgs-reversal"
+	      isForCompensation="true"/>
+	      
+	    <bpmn:sequenceFlow id="RTGS_to_Ledger" sourceRef="RTGS_Clearing" targetRef="LedgerPosting"/>
+	
+	    <!-- SKN -->
+	    <bpmn:sequenceFlow id="Flow_SKN" sourceRef="Gateway_Channel" targetRef="SKN_Clearing">
+	      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+	        ${channel == "SKN"}
+	      </bpmn:conditionExpression>
+	    </bpmn:sequenceFlow>
+	    
+	    <bpmn:serviceTask
+	      id="SKN_Clearing"
+	      name="SKN Clearing"
+	      camunda:type="external"
+	      camunda:topic="skn-clearing"
+	      camunda:asyncBefore="true"/>
+	      
+	    <!-- SKN Compensation -->
+	    <bpmn:boundaryEvent
+	      id="SKN_Comp"
+	      attachedToRef="SKN_Clearing"
+	      cancelActivity="true">
+	      <bpmn:compensateEventDefinition/>
+	    </bpmn:boundaryEvent>
+	    
+	    <bpmn:serviceTask
+	      id="SKN_Reversal"
+	      name="SKN Reversal"
+	      camunda:type="external"
+	      camunda:topic="skn-reversal"
+	      isForCompensation="true"/>
+	      
+	    <bpmn:sequenceFlow id="SKN_to_Ledger" sourceRef="SKN_Clearing" targetRef="LedgerPosting"/>
+	
+	    <!-- Internal -->
+	    <bpmn:sequenceFlow id="Flow_Internal" sourceRef="Gateway_Channel" targetRef="InternalTransfer">
+	      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+	        ${channel == "INTERNAL"}
+	      </bpmn:conditionExpression>
+	    </bpmn:sequenceFlow>
+	
+	    <bpmn:serviceTask
+	      id="InternalTransfer"
+	      name="Internal Transfer"
+	      camunda:type="external"
+	      camunda:topic="internal-transfer"
+	      camunda:asyncBefore="true"/>
+	      
+	    <!-- Internal Compensation -->
+	    <bpmn:boundaryEvent
+	      id="Internal_Comp"
+	      attachedToRef="InternalTransfer"
+	      cancelActivity="true">
+	      <bpmn:compensateEventDefinition/>
+	    </bpmn:boundaryEvent>
+	    
+	    <bpmn:serviceTask
+	      id="Internal_Reversal"
+	      name="Internal Transfer Reversal"
+	      camunda:type="external"
+	      camunda:topic="internal-reversal"
+	      isForCompensation="true"/>
+	      
+	    <bpmn:sequenceFlow id="Internal_to_Ledger" sourceRef="InternalTransfer" targetRef="LedgerPosting"/>
+	    
+	    <!-- Ledger (FINAL, NO AUTO COMPENSATION) -->
+	    <bpmn:serviceTask
+	      id="LedgerPosting"
+	      name="Ledger Posting"
+	      camunda:type="external"
+	      camunda:topic="ledger-posting"/>
+	
+	    <bpmn:sequenceFlow id="Ledger_to_End" sourceRef="LedgerPosting" targetRef="End_PaymentCleared"/>
+	    
+	    <bpmn:boundaryEvent
+		  id="Ledger_Error"
+		  attachedToRef="LedgerPosting">
+		  <bpmn:errorEventDefinition/>
+		</bpmn:boundaryEvent>
+		
+		<bpmn:intermediateThrowEvent id="Throw_Compensation">
+		  <bpmn:compensateEventDefinition/>
+		</bpmn:intermediateThrowEvent>
+		
+		<bpmn:sequenceFlow
+		  sourceRef="Ledger_Error"
+		  targetRef="Throw_Compensation"/>
+	
+	    <!-- End -->
+    	<bpmn:endEvent id="End_PaymentCleared"/>
+	    
+	</bpmn:process>
+</bpmn:definitions>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="Definitions_ApprovalMatrix"
+             name="Approval Matrix"
+             namespace="http://sanjaya-banking/dmn/approval">
+
+  <decision id="approval-matrix" name="Approval Matrix">
+    <decisionTable hitPolicy="FIRST">
+
+      <!-- INPUTS -->
+      <input>
+        <inputExpression typeRef="integer">
+          <text>score</text>
+        </inputExpression>
+      </input>
+
+      <input>
+        <inputExpression typeRef="double">
+          <text>loanAmount</text>
+        </inputExpression>
+      </input>
+
+      <input>
+        <inputExpression typeRef="boolean">
+          <text>aiAnomalyFlag</text>
+        </inputExpression>
+      </input>
+
+      <!-- OUTPUT -->
+      <output name="approvalType" typeRef="string"/>
+
+      <!-- RULE 1: AUTO APPROVE -->
+      <rule>
+        <inputEntry><text>&gt;= 750</text></inputEntry>
+        <inputEntry><text>&lt;= 100000000</text></inputEntry>
+        <inputEntry><text>false</text></inputEntry>
+        <outputEntry><text>"AUTO"</text></outputEntry>
+      </rule>
+
+      <!-- RULE 2: REJECT (Very Low Score or Anomaly) -->
+      <rule>
+        <inputEntry><text>&lt; 500</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"REJECT"</text></outputEntry>
+      </rule>
+
+      <!-- RULE 3: REJECT if AI anomaly -->
+      <rule>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>true</text></inputEntry>
+        <outputEntry><text>"REJECT"</text></outputEntry>
+      </rule>
+
+      <!-- RULE 4: OTHERWISE MANUAL -->
+      <rule>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"MANUAL"</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+	xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+	xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+	xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+	xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	id="Definitions_loan"
+	targetNamespace="http://sanjaya-banking/workflow/loan">
+
+	<bpmn:process id="loan-origination" name="Loan Origination" isExecutable="true" camunda:historyTimeToLive="365">
+		<!-- Start -->
+	    <bpmn:startEvent id="StartEvent_Loan"/>
+	    <bpmn:sequenceFlow id="f1" sourceRef="StartEvent_Loan" targetRef="Validate"/>
+	    
+	    <!-- Validate-->
+	    <bpmn:serviceTask
+	      id="Validate"
+	      name="Validate Loan Application"
+	      camunda:type="external"
+	      camunda:topic="loan-validation"/>
+	    <bpmn:sequenceFlow id="f2" sourceRef="Validate" targetRef="CreditRiskAssessment"/>
+	    
+	    <bpmn:serviceTask
+		    id="PerformKyc"
+		    name="Perform KYC"
+		    camunda:type="external"
+		    camunda:topic="perform-kyc"/>
+	    
+	    <!-- Credit Risk -->
+	    <bpmn:callActivity
+		    id="CreditRiskAssessment"
+		    name="Credit Risk Assessment"
+		    calledElement="risk-processing">
+		
+		    <bpmn:extensionElements>
+		        <camunda:in variables="all"/>
+		        <camunda:out variables="all"/>
+		    </bpmn:extensionElements>
+		
+		</bpmn:callActivity>
+	    <bpmn:sequenceFlow id="f3" sourceRef="CreditRiskAssessment" targetRef="Decision"/>
+	
+	    <!-- Decision -->
+	    <bpmn:businessRuleTask
+		    id="ApprovalMatrix"
+		    name="Determine Approval Flow"
+		    camunda:decisionRef="approval-matrix"
+		    camunda:mapDecisionResult="singleResult">
+		</bpmn:businessRuleTask>
+	      
+	    <bpmn:sequenceFlow id="f4" sourceRef="Decision" targetRef="ApprovalMatrix"/>
+		<bpmn:sequenceFlow id="f5" sourceRef="ApprovalMatrix" targetRef="ApprovalGateway"/>
+		
+		<bpmn:exclusiveGateway id="ApprovalGateway"/>
+		
+	    <!-- AUTO -->
+	    <bpmn:sequenceFlow id="autoApprove" sourceRef="ApprovalGateway" targetRef="BookLoan">
+		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+		    ${approvalType == "AUTO"}
+		  </bpmn:conditionExpression>
+		</bpmn:sequenceFlow>
+		
+		<!-- REJECT -->
+		<bpmn:sequenceFlow id="rejectFlow" sourceRef="ApprovalGateway" targetRef="Rejected">
+		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+		    ${approvalType == "REJECT"}
+		  </bpmn:conditionExpression>
+		</bpmn:sequenceFlow>
+		
+		<!-- Manual -->
+	    <bpmn:sequenceFlow id="manualFlow" sourceRef="ApprovalGateway" targetRef="ManualApprovalSubProcess">
+		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+		    ${approvalType == "MANUAL"}
+		  </bpmn:conditionExpression>
+		</bpmn:sequenceFlow>
+		
+		<bpmn:subProcess id="ManualApprovalSubProcess" name="Manual Approval Flow">
+		  <bpmn:startEvent id="ManualStart">
+			<bpmn:extensionElements>
+				<camunda:executionListener
+			    	event="start"
+			        class="com.learn.workflow.approvalcredit.listener.DynamicAuthorityResolverListener"/>
+			 </bpmn:extensionElements>
+		  </bpmn:startEvent>
+		  <bpmn:sequenceFlow sourceRef="ManualStart" targetRef="RoleCheckGateway"/>
+		  
+		  <bpmn:exclusiveGateway id="RoleCheckGateway"/>
+		  
+		  <bpmn:userTask id="EscalateApproval"
+		    name="Higher Level Approval"
+		    camunda:candidateUsers="${approvers}">
+			    
+			    <bpmn:extensionElements>
+			        <!-- Load next level approvers -->
+			        <camunda:executionListener
+			            event="start"
+			            class="com.learn.workflow.approvalcredit.listener.ManualStartInitializationListener"/>
+			        <camunda:executionListener
+			            event="end"
+			            class="com.learn.workflow.approvalcredit.listener.ApprovalAuditListener"/>
+			    </bpmn:extensionElements>
+		  </bpmn:userTask>
+		  
+		  <bpmn:userTask id="SingleApprovalTask" name="Approve Loan" 
+		  	camunda:candidateUsers="${approvers}">
+		
+		    <bpmn:extensionElements>
+	        <!-- Load approvers from DB -->
+	        <camunda:executionListener
+	            event="start"
+	            class="com.learn.workflow.approvalcredit.listener.ManualStartInitializationListener"/>
+	        <camunda:executionListener
+	            event="start"
+	            class="com.learn.workflow.approvalcredit.listener.AuthorityValidationListener"/>
+	        <camunda:executionListener
+	            event="end"
+	            class="com.learn.workflow.approvalcredit.listener.ApprovalAuditListener"/>
+    		</bpmn:extensionElements>
+		  </bpmn:userTask>
+		  
+		  <bpmn:sequenceFlow sourceRef="EscalateApproval" targetRef="ManualGateway"/>
+		  
+		  <bpmn:sequenceFlow sourceRef="RoleCheckGateway" targetRef="SingleApprovalTask">
+			  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+			    ${approvalRole != 'CREDIT_COMMITTEE'}
+			  </bpmn:conditionExpression>
+		 </bpmn:sequenceFlow>
+		 
+		 <bpmn:userTask id="CommitteeApprovalTask" name="Committee Approval"
+    		camunda:assignee="${member}">
+		
+		    <bpmn:extensionElements>
+		        <!-- Load committee members -->
+		        <camunda:executionListener
+		            event="start"
+		            class="com.learn.workflow.approvalcredit.listener.ManualStartInitializationListener"/>
+		        <camunda:executionListener
+		            event="start"
+		            class="com.learn.workflow.approvalcredit.listener.AuthorityValidationListener"/>
+		        <camunda:executionListener
+		            event="end"
+		            class="com.learn.workflow.approvalcredit.listener.ApprovalAuditListener"/>
+		        <camunda:taskListener
+		            event="complete"
+		            class="com.learn.workflow.approvalcredit.listener.CommitteeVoteListener"/>
+		    </bpmn:extensionElements>
+		
+		    <bpmn:multiInstanceLoopCharacteristics isSequential="false" 
+		    	camunda:collection="committeeMembers"
+		        camunda:elementVariable="member">
+		        
+		        <bpmn:completionCondition>
+		            ${approvalCount >= requiredApprovals}
+		        </bpmn:completionCondition>
+		
+		    </bpmn:multiInstanceLoopCharacteristics>
+		</bpmn:userTask>
+		
+		<bpmn:sequenceFlow sourceRef="RoleCheckGateway" targetRef="CommitteeApprovalTask">
+		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+		    ${approvalRole == 'CREDIT_COMMITTEE'}
+		  </bpmn:conditionExpression>
+		</bpmn:sequenceFlow>
+		  
+		  <bpmn:sequenceFlow sourceRef="SingleApprovalTask" targetRef="ManualGateway"/>
+		  <bpmn:sequenceFlow sourceRef="CommitteeApprovalTask" targetRef="ManualGateway"/>
+		  <bpmn:exclusiveGateway id="ManualGateway"/>
+		
+		  <!-- Approved -->
+		  <bpmn:sequenceFlow sourceRef="ManualGateway" targetRef="BookLoan">
+			<bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+			    ${approved == true || committeeApproved == true}
+			</bpmn:conditionExpression>
+		  </bpmn:sequenceFlow>
+		
+		  <!-- Rejected -->
+		  <bpmn:sequenceFlow id="flowEscalate" sourceRef="ManualGateway" targetRef="EscalateApproval">
+			  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+			    ${approved == false && nextApprovalRole != null}
+			  </bpmn:conditionExpression>
+			
+			  <bpmn:extensionElements>
+			    <camunda:executionListener
+			        event="take"
+			        class="com.learn.workflow.approvalcredit.listener.EscalationListener"/>
+			  </bpmn:extensionElements>
+		  </bpmn:sequenceFlow>
+		  
+		  <bpmn:endEvent id="ManualFinalReject"/>
+		  
+		  <bpmn:sequenceFlow sourceRef="ManualGateway" targetRef="ManualFinalReject">
+			  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+			    ${approved == false && nextApprovalRole == null}
+			  </bpmn:conditionExpression>
+		  </bpmn:sequenceFlow>
+		
+		</bpmn:subProcess>
+		
+		<bpmn:sequenceFlow sourceRef="ManualApprovalSubProcess" targetRef="Rejected"/>
+		
+		<bpmn:boundaryEvent id="ApprovalTimeout"
+		    attachedToRef="SingleApprovalTask"
+		    cancelActivity="true">
+		    <bpmn:timerEventDefinition>
+		        <bpmn:timeDuration>PT24H</bpmn:timeDuration>
+		    </bpmn:timerEventDefinition>
+		</bpmn:boundaryEvent>
+		
+		<bpmn:sequenceFlow sourceRef="ApprovalTimeout" targetRef="EscalateApproval">
+		  <bpmn:extensionElements>
+		    <camunda:executionListener
+		        event="take"
+		        class="com.learn.workflow.approvalcredit.listener.EscalationListener"/>
+		  </bpmn:extensionElements>
+		</bpmn:sequenceFlow>
+		
+		<bpmn:boundaryEvent id="CommitteeTimeout"
+		    attachedToRef="CommitteeApprovalTask"
+		    cancelActivity="true">
+		    <bpmn:timerEventDefinition>
+		        <bpmn:timeDuration>PT48H</bpmn:timeDuration>
+		    </bpmn:timerEventDefinition>
+		</bpmn:boundaryEvent>
+		
+		<bpmn:sequenceFlow sourceRef="CommitteeTimeout" targetRef="EscalateApproval"/>
+	    
+	    <!-- Loan Booking -->
+	    <bpmn:serviceTask
+	      id="BookLoan"
+	      name="Book Loan"
+	      camunda:type="external"
+	      camunda:topic="loan-booking"
+	      camunda:asyncBefore="true"/>
+	      
+	    <!-- COMPENSATION Boundary-->
+	    <bpmn:boundaryEvent
+	      id="BookLoan_Comp"
+	      attachedToRef="BookLoan"
+	      cancelActivity="true">
+	      <bpmn:compensateEventDefinition/>
+	    </bpmn:boundaryEvent>
+		
+		<!-- COMPENSATION Task-->
+	    <bpmn:serviceTask
+	      id="ReverseLoan"
+	      name="Reverse Loan Booking"
+	      camunda:type="external"
+	      camunda:topic="loan-reversal"
+	      isForCompensation="true"/>
+	      
+	    <!-- End -->
+	    <bpmn:endEvent id="Approved"/>
+	    <bpmn:sequenceFlow id="f5" sourceRef="BookLoan" targetRef="Approved"/>
+	
+	    <bpmn:endEvent id="Rejected"/>
+	    
+	</bpmn:process>
+</bpmn:definitions>
