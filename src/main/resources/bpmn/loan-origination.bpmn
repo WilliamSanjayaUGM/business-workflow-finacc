@@ -1,259 +1,139 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions
-	xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-	xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-	xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-	xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	id="Definitions_loan"
-	targetNamespace="http://sanjaya-banking/workflow/loan">
-
-	<bpmn:process id="loan-origination" name="Loan Origination" isExecutable="true" camunda:historyTimeToLive="365">
-		<!-- Start -->
-	    <bpmn:startEvent id="StartEvent_Loan"/>
-	    <bpmn:sequenceFlow id="f1" sourceRef="StartEvent_Loan" targetRef="Validate"/>
-	    
-	    <!-- Validate-->
-	    <bpmn:serviceTask
-	      id="Validate"
-	      name="Validate Loan Application"
-	      camunda:type="external"
-	      camunda:topic="loan-validation"/>
-	    <bpmn:sequenceFlow id="f2" sourceRef="Validate" targetRef="CreditRiskAssessment"/>
-	    
-	    <bpmn:serviceTask
-		    id="PerformKyc"
-		    name="Perform KYC"
-		    camunda:type="external"
-		    camunda:topic="perform-kyc"/>
-	    
-	    <!-- Credit Risk -->
-	    <bpmn:callActivity
-		    id="CreditRiskAssessment"
-		    name="Credit Risk Assessment"
-		    calledElement="risk-processing">
-		
-		    <bpmn:extensionElements>
-		        <camunda:in variables="all"/>
-		        <camunda:out variables="all"/>
-		    </bpmn:extensionElements>
-		
-		</bpmn:callActivity>
-	    <bpmn:sequenceFlow id="f3" sourceRef="CreditRiskAssessment" targetRef="Decision"/>
-	
-	    <!-- Decision -->
-	    <bpmn:businessRuleTask
-		    id="ApprovalMatrix"
-		    name="Determine Approval Flow"
-		    camunda:decisionRef="approval-matrix"
-		    camunda:mapDecisionResult="singleResult">
-		</bpmn:businessRuleTask>
-	      
-	    <bpmn:sequenceFlow id="f4" sourceRef="Decision" targetRef="ApprovalMatrix"/>
-		<bpmn:sequenceFlow id="f5" sourceRef="ApprovalMatrix" targetRef="ApprovalGateway"/>
-		
-		<bpmn:exclusiveGateway id="ApprovalGateway"/>
-		
-	    <!-- AUTO -->
-	    <bpmn:sequenceFlow id="autoApprove" sourceRef="ApprovalGateway" targetRef="BookLoan">
-		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-		    ${approvalType == "AUTO"}
-		  </bpmn:conditionExpression>
-		</bpmn:sequenceFlow>
-		
-		<!-- REJECT -->
-		<bpmn:sequenceFlow id="rejectFlow" sourceRef="ApprovalGateway" targetRef="Rejected">
-		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-		    ${approvalType == "REJECT"}
-		  </bpmn:conditionExpression>
-		</bpmn:sequenceFlow>
-		
-		<!-- Manual -->
-	    <bpmn:sequenceFlow id="manualFlow" sourceRef="ApprovalGateway" targetRef="ManualApprovalSubProcess">
-		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-		    ${approvalType == "MANUAL"}
-		  </bpmn:conditionExpression>
-		</bpmn:sequenceFlow>
-		
-		<bpmn:subProcess id="ManualApprovalSubProcess" name="Manual Approval Flow">
-		  <bpmn:startEvent id="ManualStart">
-			<bpmn:extensionElements>
-				<camunda:executionListener
-			    	event="start"
-			        class="com.learn.workflow.approvalcredit.listener.DynamicAuthorityResolverListener"/>
-			 </bpmn:extensionElements>
-		  </bpmn:startEvent>
-		  <bpmn:sequenceFlow sourceRef="ManualStart" targetRef="RoleCheckGateway"/>
-		  
-		  <bpmn:exclusiveGateway id="RoleCheckGateway"/>
-		  
-		  <bpmn:userTask id="EscalateApproval"
-		    name="Higher Level Approval"
-		    camunda:candidateUsers="${approvers}">
-			    
-			    <bpmn:extensionElements>
-			        <!-- Load next level approvers -->
-			        <camunda:executionListener
-			            event="start"
-			            class="com.learn.workflow.approvalcredit.listener.ManualStartInitializationListener"/>
-			        <camunda:executionListener
-			            event="end"
-			            class="com.learn.workflow.approvalcredit.listener.ApprovalAuditListener"/>
-			    </bpmn:extensionElements>
-		  </bpmn:userTask>
-		  
-		  <bpmn:userTask id="SingleApprovalTask" name="Approve Loan" 
-		  	camunda:candidateUsers="${approvers}">
-		
-		    <bpmn:extensionElements>
-	        <!-- Load approvers from DB -->
-	        <camunda:executionListener
-	            event="start"
-	            class="com.learn.workflow.approvalcredit.listener.ManualStartInitializationListener"/>
-	        <camunda:executionListener
-	            event="start"
-	            class="com.learn.workflow.approvalcredit.listener.AuthorityValidationListener"/>
-	        <camunda:executionListener
-	            event="end"
-	            class="com.learn.workflow.approvalcredit.listener.ApprovalAuditListener"/>
-    		</bpmn:extensionElements>
-		  </bpmn:userTask>
-		  
-		  <bpmn:sequenceFlow sourceRef="EscalateApproval" targetRef="ManualGateway"/>
-		  
-		  <bpmn:sequenceFlow sourceRef="RoleCheckGateway" targetRef="SingleApprovalTask">
-			  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-			    ${approvalRole != 'CREDIT_COMMITTEE'}
-			  </bpmn:conditionExpression>
-		 </bpmn:sequenceFlow>
-		 
-		 <bpmn:userTask id="CommitteeApprovalTask" name="Committee Approval"
-    		camunda:assignee="${member}">
-		
-		    <bpmn:extensionElements>
-		        <!-- Load committee members -->
-		        <camunda:executionListener
-		            event="start"
-		            class="com.learn.workflow.approvalcredit.listener.ManualStartInitializationListener"/>
-		        <camunda:executionListener
-		            event="start"
-		            class="com.learn.workflow.approvalcredit.listener.AuthorityValidationListener"/>
-		        <camunda:executionListener
-		            event="end"
-		            class="com.learn.workflow.approvalcredit.listener.ApprovalAuditListener"/>
-		        <camunda:taskListener
-		            event="complete"
-		            class="com.learn.workflow.approvalcredit.listener.CommitteeVoteListener"/>
-		    </bpmn:extensionElements>
-		
-		    <bpmn:multiInstanceLoopCharacteristics isSequential="false" 
-		    	camunda:collection="committeeMembers"
-		        camunda:elementVariable="member">
-		        
-		        <bpmn:completionCondition>
-		            ${approvalCount >= requiredApprovals}
-		        </bpmn:completionCondition>
-		
-		    </bpmn:multiInstanceLoopCharacteristics>
-		</bpmn:userTask>
-		
-		<bpmn:sequenceFlow sourceRef="RoleCheckGateway" targetRef="CommitteeApprovalTask">
-		  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-		    ${approvalRole == 'CREDIT_COMMITTEE'}
-		  </bpmn:conditionExpression>
-		</bpmn:sequenceFlow>
-		  
-		  <bpmn:sequenceFlow sourceRef="SingleApprovalTask" targetRef="ManualGateway"/>
-		  <bpmn:sequenceFlow sourceRef="CommitteeApprovalTask" targetRef="ManualGateway"/>
-		  <bpmn:exclusiveGateway id="ManualGateway"/>
-		
-		  <!-- Approved -->
-		  <bpmn:sequenceFlow sourceRef="ManualGateway" targetRef="BookLoan">
-			<bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-			    ${approved == true || committeeApproved == true}
-			</bpmn:conditionExpression>
-		  </bpmn:sequenceFlow>
-		
-		  <!-- Rejected -->
-		  <bpmn:sequenceFlow id="flowEscalate" sourceRef="ManualGateway" targetRef="EscalateApproval">
-			  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-			    ${approved == false && nextApprovalRole != null}
-			  </bpmn:conditionExpression>
-			
-			  <bpmn:extensionElements>
-			    <camunda:executionListener
-			        event="take"
-			        class="com.learn.workflow.approvalcredit.listener.EscalationListener"/>
-			  </bpmn:extensionElements>
-		  </bpmn:sequenceFlow>
-		  
-		  <bpmn:endEvent id="ManualFinalReject"/>
-		  
-		  <bpmn:sequenceFlow sourceRef="ManualGateway" targetRef="ManualFinalReject">
-			  <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
-			    ${approved == false && nextApprovalRole == null}
-			  </bpmn:conditionExpression>
-		  </bpmn:sequenceFlow>
-		
-		</bpmn:subProcess>
-		
-		<bpmn:sequenceFlow sourceRef="ManualApprovalSubProcess" targetRef="Rejected"/>
-		
-		<bpmn:boundaryEvent id="ApprovalTimeout"
-		    attachedToRef="SingleApprovalTask"
-		    cancelActivity="true">
-		    <bpmn:timerEventDefinition>
-		        <bpmn:timeDuration>PT24H</bpmn:timeDuration>
-		    </bpmn:timerEventDefinition>
-		</bpmn:boundaryEvent>
-		
-		<bpmn:sequenceFlow sourceRef="ApprovalTimeout" targetRef="EscalateApproval">
-		  <bpmn:extensionElements>
-		    <camunda:executionListener
-		        event="take"
-		        class="com.learn.workflow.approvalcredit.listener.EscalationListener"/>
-		  </bpmn:extensionElements>
-		</bpmn:sequenceFlow>
-		
-		<bpmn:boundaryEvent id="CommitteeTimeout"
-		    attachedToRef="CommitteeApprovalTask"
-		    cancelActivity="true">
-		    <bpmn:timerEventDefinition>
-		        <bpmn:timeDuration>PT48H</bpmn:timeDuration>
-		    </bpmn:timerEventDefinition>
-		</bpmn:boundaryEvent>
-		
-		<bpmn:sequenceFlow sourceRef="CommitteeTimeout" targetRef="EscalateApproval"/>
-	    
-	    <!-- Loan Booking -->
-	    <bpmn:serviceTask
-	      id="BookLoan"
-	      name="Book Loan"
-	      camunda:type="external"
-	      camunda:topic="loan-booking"
-	      camunda:asyncBefore="true"/>
-	      
-	    <!-- COMPENSATION Boundary-->
-	    <bpmn:boundaryEvent
-	      id="BookLoan_Comp"
-	      attachedToRef="BookLoan"
-	      cancelActivity="true">
-	      <bpmn:compensateEventDefinition/>
-	    </bpmn:boundaryEvent>
-		
-		<!-- COMPENSATION Task-->
-	    <bpmn:serviceTask
-	      id="ReverseLoan"
-	      name="Reverse Loan Booking"
-	      camunda:type="external"
-	      camunda:topic="loan-reversal"
-	      isForCompensation="true"/>
-	      
-	    <!-- End -->
-	    <bpmn:endEvent id="Approved"/>
-	    <bpmn:sequenceFlow id="f5" sourceRef="BookLoan" targetRef="Approved"/>
-	
-	    <bpmn:endEvent id="Rejected"/>
-	    
-	</bpmn:process>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_loan" targetNamespace="http://sanjaya-banking/workflow/loan" exporter="Camunda Modeler" exporterVersion="5.45.0">
+  <bpmn:process id="loan-origination" name="Loan Origination" isExecutable="true">
+    <bpmn:startEvent id="start_loan">
+      <bpmn:outgoing>Flow_0gqmnhv</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="flow_start_validate" sourceRef="start_loan" targetRef="task_validate" />
+    <bpmn:serviceTask id="task_validate" name="Validate Loan" camunda:type="external" camunda:topic="loan-validation">
+      <bpmn:incoming>Flow_0gqmnhv</bpmn:incoming>
+      <bpmn:outgoing>Flow_0x3a634</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="flow_validate_risk" sourceRef="task_validate" targetRef="call_risk" />
+    <bpmn:callActivity id="call_risk" name="Credit Risk" calledElement="risk-processing">
+      <bpmn:incoming>Flow_0x3a634</bpmn:incoming>
+      <bpmn:outgoing>Flow_0a6isc2</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:sequenceFlow id="flow_risk_dmn" sourceRef="call_risk" targetRef="task_dmn" />
+    <bpmn:businessRuleTask id="task_dmn" name="Approval Matrix" camunda:decisionRef="approval-matrix" camunda:mapDecisionResult="singleResult">
+      <bpmn:incoming>Flow_0a6isc2</bpmn:incoming>
+      <bpmn:outgoing>Flow_0igxlno</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:sequenceFlow id="flow_dmn_gateway" sourceRef="task_dmn" targetRef="gateway_approval" />
+    <bpmn:exclusiveGateway id="gateway_approval">
+      <bpmn:incoming>Flow_0igxlno</bpmn:incoming>
+      <bpmn:outgoing>Flow_1fn5i9f</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1x1egu2</bpmn:outgoing>
+      <bpmn:outgoing>Flow_0hx2akf</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="flow_auto" sourceRef="gateway_approval" targetRef="task_book">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+        ${approvalType == "AUTO"}
+      </bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_reject" sourceRef="gateway_approval" targetRef="end_reject">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+        ${approvalType == "REJECT"}
+      </bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_manual" sourceRef="gateway_approval" targetRef="task_manual">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">
+        ${approvalType == "MANUAL"}
+      </bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:userTask id="task_manual" name="Manual Approval">
+      <bpmn:incoming>Flow_1x1egu2</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="flow_manual_book" sourceRef="task_manual" targetRef="task_book" />
+    <bpmn:serviceTask id="task_book" name="Book Loan" camunda:type="external" camunda:topic="loan-booking">
+      <bpmn:incoming>Flow_1fn5i9f</bpmn:incoming>
+      <bpmn:outgoing>Flow_0oqi7a2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="flow_book_end" sourceRef="task_book" targetRef="end_approved" />
+    <bpmn:endEvent id="end_approved">
+      <bpmn:incoming>Flow_0oqi7a2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="end_reject">
+      <bpmn:incoming>Flow_0hx2akf</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0gqmnhv" sourceRef="start_loan" targetRef="task_validate" />
+    <bpmn:sequenceFlow id="Flow_0x3a634" sourceRef="task_validate" targetRef="call_risk" />
+    <bpmn:sequenceFlow id="Flow_0a6isc2" sourceRef="call_risk" targetRef="task_dmn" />
+    <bpmn:sequenceFlow id="Flow_0igxlno" sourceRef="task_dmn" targetRef="gateway_approval" />
+    <bpmn:sequenceFlow id="Flow_1fn5i9f" sourceRef="gateway_approval" targetRef="task_book" />
+    <bpmn:sequenceFlow id="Flow_1x1egu2" sourceRef="gateway_approval" targetRef="task_manual" />
+    <bpmn:sequenceFlow id="Flow_0hx2akf" sourceRef="gateway_approval" targetRef="end_reject" />
+    <bpmn:sequenceFlow id="Flow_0oqi7a2" sourceRef="task_book" targetRef="end_approved" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="loan-origination">
+      <bpmndi:BPMNShape id="start_di" bpmnElement="start_loan">
+        <dc:Bounds x="160" y="180" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_ok_di" bpmnElement="end_approved">
+        <dc:Bounds x="1010" y="180" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="995" y="223" width="66" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="validate_di" bpmnElement="task_validate">
+        <dc:Bounds x="250" y="168" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="risk_di" bpmnElement="call_risk">
+        <dc:Bounds x="410" y="168" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="dmn_di" bpmnElement="task_dmn">
+        <dc:Bounds x="560" y="168" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gateway_di" bpmnElement="gateway_approval" isMarkerVisible="true">
+        <dc:Bounds x="710" y="173" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="book_di" bpmnElement="task_book">
+        <dc:Bounds x="850" y="168" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="manual_di" bpmnElement="task_manual">
+        <dc:Bounds x="850" y="280" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_reject_di" bpmnElement="end_reject">
+        <dc:Bounds x="882" y="80" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="873" y="123" width="54" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_0gqmnhv_di" bpmnElement="Flow_0gqmnhv">
+        <di:waypoint x="196" y="198" />
+        <di:waypoint x="250" y="198" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0x3a634_di" bpmnElement="Flow_0x3a634">
+        <di:waypoint x="350" y="198" />
+        <di:waypoint x="410" y="198" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0a6isc2_di" bpmnElement="Flow_0a6isc2">
+        <di:waypoint x="510" y="198" />
+        <di:waypoint x="560" y="198" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0igxlno_di" bpmnElement="Flow_0igxlno">
+        <di:waypoint x="660" y="198" />
+        <di:waypoint x="710" y="198" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1fn5i9f_di" bpmnElement="Flow_1fn5i9f">
+        <di:waypoint x="760" y="198" />
+        <di:waypoint x="850" y="198" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1x1egu2_di" bpmnElement="Flow_1x1egu2">
+        <di:waypoint x="735" y="223" />
+        <di:waypoint x="735" y="310" />
+        <di:waypoint x="850" y="310" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0hx2akf_di" bpmnElement="Flow_0hx2akf">
+        <di:waypoint x="735" y="173" />
+        <di:waypoint x="735" y="98" />
+        <di:waypoint x="882" y="98" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0oqi7a2_di" bpmnElement="Flow_0oqi7a2">
+        <di:waypoint x="950" y="198" />
+        <di:waypoint x="1010" y="198" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
 </bpmn:definitions>
